@@ -209,11 +209,11 @@ function injectUI() {
     container.innerHTML = `
       <button id="np-open" type="button" title="小说随身库">小说</button>
       <div id="np-overlay" hidden></div>
-      <section id="np-panel" role="dialog" aria-modal="true" aria-label="小说随身库" hidden>
-        <header class="np-header"><div><strong>小说随身库</strong><div class="np-small">零额外模型调用 · 本地原文检索</div></div><button type="button" id="np-close" aria-label="关闭">×</button></header>
+      <dialog id="np-panel" aria-label="小说随身库">
+        <header class="np-header"><div><strong>小说随身库</strong><div class="np-small">零额外模型调用 · 本地原文检索</div></div><button type="button" id="np-close" aria-label="关闭小说随身库">关闭</button></header>
         <div class="np-body">
           <p class="np-hint" id="np-chat-label"></p>
-          <label class="np-filebtn" for="np-upload">＋ 上传 TXT / Markdown 小说</label>
+          <button type="button" class="np-filebtn" id="np-upload-btn">＋ 上传小说（TXT / Markdown）</button>
           <input type="file" id="np-upload" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden />
           <label for="np-books">本聊天使用的小说</label>
           <select id="np-books"></select>
@@ -231,13 +231,23 @@ function injectUI() {
           <button type="button" class="np-danger" id="np-delete">删除选中小说</button>
           <p class="np-hint">资料保存在当前浏览器的 IndexedDB；换设备、清除网站数据需要重新导入。不会调用额外 AI，也不自动推进章节。</p>
         </div>
-        <footer id="np-status" aria-live="polite">准备就绪</footer>
-      </section>`;
+        <footer class="np-footer"><div id="np-status" aria-live="polite">准备就绪</div><button type="button" id="np-close-bottom">关闭窗口</button></footer>
+      </dialog>`;
     document.body.append(container);
-    const close = () => { el('np-overlay').hidden = true; el('np-panel').hidden = true; };
-    el('np-open').addEventListener('click', async () => {
-        el('np-overlay').hidden = false; el('np-panel').hidden = false;
+    const close = () => { el('np-panel').close(); };
+    const open = async () => {
+        const panel = el('np-panel');
+        if (!panel.open) panel.showModal();
         try { await syncPanel(); } catch (error) { report('读取失败：' + error.message, true); }
+    };
+    globalThis.NovelPocket_openManager = open;
+    el('np-open').addEventListener('click', open);
+    el('np-close-bottom').addEventListener('click', close);
+    el('np-upload-btn').addEventListener('click', () => el('np-upload').click());
+    el('np-panel').addEventListener('click', event => {
+        if (event.target !== el('np-panel')) return;
+        const rect = event.target.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) close();
     });
     el('np-close').addEventListener('click', close);
     el('np-overlay').addEventListener('click', close);
@@ -274,7 +284,7 @@ function initialize() {
         ctx.eventSource.on(ctx.event_types.CHAT_CHANGED, () => {
             lastMatches = []; lastTitle = ''; active = null; activeIndex = null;
             clearInjection();
-            if (!el('np-panel')?.hidden) syncPanel().catch(err => report(err.message, true));
+            if (el('np-panel')?.open) syncPanel().catch(err => report(err.message, true));
         });
     }
 }

@@ -21,6 +21,10 @@
     async function launch() {
         try {
             await loadApp();
+            if (typeof globalThis.NovelPocket_openManager === 'function') {
+                await globalThis.NovelPocket_openManager();
+                return;
+            }
             const original = document.getElementById('np-open');
             if (!original) throw new Error('主模块已加载，但没有创建窗口入口（np-open）。');
             original.click();

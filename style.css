@@ -1,19 +1,21 @@
 #np-root { color: var(--SmartThemeBodyColor, #eee); font: inherit; }
 #np-open { position: fixed; right: 18px; bottom: 94px; z-index: 10001; border: 1px solid var(--SmartThemeBorderColor, #777); color: var(--SmartThemeBodyColor, white); background: var(--SmartThemeBlurTintColor, #323238); box-shadow: 0 4px 16px #0006; border-radius: 999px; padding: 9px 14px; font-size: 14px; cursor: pointer; }
 #np-overlay { position: fixed; inset: 0; z-index: 10002; background: #0009; }
-#np-panel { position: fixed; z-index: 10003; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(500px, calc(100vw - 22px)); max-height: min(86vh, 850px); background: var(--SmartThemeBlurTintColor, #23242c); color: var(--SmartThemeBodyColor, #eee); border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 13px; box-shadow: 0 12px 35px #0009; display: flex; flex-direction: column; }
+#np-panel { margin: 0; padding: 0; box-sizing: border-box; max-width: none; overflow: hidden; position: fixed; z-index: 10003; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(500px, calc(100vw - 22px)); max-height: min(86vh, 850px); background: var(--SmartThemeBlurTintColor, #23242c); color: var(--SmartThemeBodyColor, #eee); border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 13px; box-shadow: 0 12px 35px #0009; display: none; flex-direction: column; }
+#np-panel[open] { display: flex; }
+#np-panel::backdrop { background: #0009; }
 #np-panel[hidden], #np-overlay[hidden] { display: none !important; }
 #np-panel * { box-sizing: border-box; }
-#np-panel .np-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 17px 11px; border-bottom: 1px solid #9994; }
+#np-panel .np-header { flex-shrink: 0; gap: 10px; display: flex; justify-content: space-between; align-items: center; padding: 14px 17px 11px; border-bottom: 1px solid #9994; }
 #np-panel .np-header strong { font-size: 19px; }
 #np-panel .np-small, #np-panel .np-hint { font-size: 12px; opacity: .78; line-height: 1.6; }
-#np-panel .np-body { overflow: auto; padding: 14px 17px; display: flex; flex-direction: column; gap: 8px; }
+#np-panel .np-body { min-height: 0; overflow: auto; padding: 14px 17px; display: flex; flex-direction: column; gap: 8px; }
 #np-panel label:not(.np-filebtn):not(.np-toggle) { display: block; font-size: 13px; opacity: .94; margin-top: 5px; }
 #np-panel button, #np-panel select, #np-panel input[type=text] { font: inherit; }
 #np-panel select, #np-panel input[type=text] { color: var(--SmartThemeBodyColor, #eee); background: var(--SmartThemeBlurTintColor, #222); border: 1px solid #9997; padding: 8px; border-radius: 6px; min-width: 0; width: 100%; }
 #np-panel button { background: #647caa; color: white; border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
 #np-panel button:hover, #np-panel .np-filebtn:hover { filter: brightness(1.15); }
-#np-close { font-size: 22px !important; background: transparent !important; }
+#np-close { flex-shrink: 0; font-size: 15px !important; min-height: 40px; background: #4d688c !important; }
 #np-panel .np-filebtn { text-align: center; display: block; background: #4d688c; color: white; padding: 11px; border-radius: 7px; cursor: pointer; font-weight: bold; }
 #np-panel .np-toggle { display: flex; align-items: center; gap: 8px; padding: 8px 0; font-size: 13px; }
 #np-panel .np-toggle input { width: 18px; height: 18px; }
@@ -33,3 +35,9 @@
 
 /* The reliable bootstrap owns the visible launcher; hide the old internal one. */
 #np-open { display: none !important; }
+
+#np-panel .np-footer { flex-shrink: 0; padding: 10px 17px; border-top: 1px solid #9994; display: flex; align-items: center; gap: 8px; }
+#np-panel #np-status { flex: 1; border: 0; padding: 0; overflow-wrap: anywhere; }
+#np-close-bottom { flex-shrink: 0; min-height: 40px; }
+#np-panel .np-filebtn { flex-shrink: 0; width: 100%; min-height: 44px; }
+@media (max-width: 600px) { #np-panel { width: calc(100vw - 20px); max-height: calc(100dvh - 24px); } #np-panel .np-header, #np-panel .np-body, #np-panel .np-footer { padding: 10px 12px; } }
