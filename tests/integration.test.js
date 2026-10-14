@@ -19,7 +19,7 @@ test('管理窗口、原生工具、进度保存与跨聊天隔离串联验证',
     const values=new Map();
     globalThis.localStorage={getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)};
     const book={id:'book-one',title:'测试书',chapters:[{title:'第一章'}],chunks:[
-        {chapter:0,part:0,text:'苏青走进古堡。'}, {chapter:0,part:1,text:'管家递上一封密信。'}, {chapter:0,part:2,text:'苏青在北门发现骑士。'},
+        {chapter:0,part:0,text:'苏青走进古堡。'}, {chapter:0,part:1,text:'管家递上一封密信。'.repeat(150)}, {chapter:0,part:2,text:'苏青在北门发现骑士。'},
     ],charCount:30};
     const books=new Map([[book.id,book]]);
     function request(fn) { const req={}; queueMicrotask(()=>{req.result=fn(); req.onsuccess?.();}); return req; }
@@ -61,9 +61,20 @@ test('管理窗口、原生工具、进度保存与跨聊天隔离串联验证',
     prefs=JSON.parse(values.get('novel-pocket-settings-v1'));
     assert.equal(prefs.chatBindings['character:card.png:chat-A'].cursor,1);
     assert.equal(prefs.chatBindings['character:card.png:chat-B'].cursor,0);
-    nodes.get('np-next').click();
+    await nodes.get('np-next').click();
+    assert.equal(nodes.get('np-block-preview').textContent,book.chunks[1].text);
+    assert.ok(nodes.get('np-block-preview').textContent.length > 1200);
+    prefs=JSON.parse(values.get('novel-pocket-settings-v1'));
+    assert.equal(prefs.chatBindings['character:card.png:chat-B'].cursor,0);
+    await nodes.get('np-anchor-apply').click();
     prefs=JSON.parse(values.get('novel-pocket-settings-v1'));
     assert.equal(prefs.chatBindings['character:card.png:chat-B'].cursor,1);
     assert.equal(prefs.chatBindings['character:card.png:chat-A'].cursor,1);
+    nodes.get('np-block').value='3'; await nodes.get('np-jump').click();
+    assert.equal(nodes.get('np-block-preview').textContent,book.chunks[2].text);
+    prefs=JSON.parse(values.get('novel-pocket-settings-v1'));
+    assert.equal(prefs.chatBindings['character:card.png:chat-B'].cursor,1);
+    await nodes.get('np-current').click();
+    assert.equal(nodes.get('np-block-preview').textContent,book.chunks[1].text);
     await nodes.get('np-close-bottom').click(); assert.equal(nodes.get('np-panel').open,false);
 });

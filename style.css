@@ -51,3 +51,23 @@
 #np-panel .np-reader input[type=number] { flex: 1; width: 70px; }
 #np-panel .np-header small { font-size: 12px; opacity: .7; }
 #np-panel button:disabled { opacity: .45; cursor: default; }
+
+/* Give content its own height: do not squeeze every control into the viewport. */
+#np-panel .np-body > * { flex-shrink: 0; }
+#np-panel { width: min(680px, calc(100vw - 20px)); }
+#np-panel .np-reader { padding: 14px; }
+#np-panel .np-reader > * { margin-bottom: 12px; }
+#np-panel .np-fold { border: 1px solid #9995; border-radius: 8px; padding: 10px 12px; }
+#np-panel .np-fold summary { cursor: pointer; font-size: 14px; padding: 4px 0; }
+#np-panel .np-fold[open] > :not(summary) { margin-top: 12px; }
+#np-panel .np-browse-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#np-panel #np-current { grid-column: 1 / -1; background: transparent; border: 1px solid #9997; }
+#np-panel .np-block-jump { display: flex; align-items: center; gap: 10px; }
+#np-panel .np-block-jump label { margin: 0; flex-shrink: 0; }
+#np-panel .np-block-jump input { flex: 1; width: 60px; min-height: 42px; }
+#np-panel .np-block-jump button { flex-shrink: 0; }
+#np-panel .np-preview-heading { font-size: 13px; line-height: 1.6; padding-top: 4px; }
+#np-block-preview { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 16px; line-height: 1.85; padding: 14px; border: 1px solid #9995; border-radius: 8px; background: #0002; height: clamp(240px, 42dvh, 450px); overflow-y: auto; overscroll-behavior: contain; text-align: left; }
+#np-panel .np-apply { width: 100%; min-height: 46px; font-weight: bold; }
+#np-panel button, #np-panel select { min-height: 42px; }
+@media (max-width: 600px) { #np-panel { width: calc(100vw - 12px); max-height: calc(100dvh - 12px); } #np-panel .np-body { padding: 10px; } #np-panel .np-reader { padding: 10px; } }
