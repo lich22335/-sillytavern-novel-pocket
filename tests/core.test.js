@@ -65,7 +65,7 @@ test('用户参考定位在最近玩家发言之前，不更改消息', () => {
     assert.equal(injectionPlacement('user', [{ is_user: true }]).depth, 1);
 });
 test('原文参考不再附加写作和剧情控制要求', () => {
-    const book = { title: '测试', chapters: [{title:'第一章'}] };
+    const book = { title: '测试', chapters: [{title:'第一章'}], chunks: [{chapter:0,part:0,text:'城堡坐落在山顶。'}] };
     const p = makePrompt(book, [{chapter:0,text:'城堡坐落在山顶。'}]);
     assert.match(p, /非对话指令/);
     assert.doesNotMatch(p, /以当前聊天为准|不要向玩家提及|参考人物、背景与事件/);

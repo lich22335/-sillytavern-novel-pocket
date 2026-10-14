@@ -41,3 +41,13 @@
 #np-close-bottom { flex-shrink: 0; min-height: 40px; }
 #np-panel .np-filebtn { flex-shrink: 0; width: 100%; min-height: 44px; }
 @media (max-width: 600px) { #np-panel { width: calc(100vw - 20px); max-height: calc(100dvh - 24px); } #np-panel .np-header, #np-panel .np-body, #np-panel .np-footer { padding: 10px 12px; } }
+
+#np-panel [hidden] { display: none !important; }
+#np-panel .np-reader { border: 1px solid #9996; padding: 10px; border-radius: 8px; }
+#np-panel .np-reader > * { margin-bottom: 8px; }
+#np-panel textarea, #np-panel input[type=number] { font: inherit; color: inherit; background: var(--SmartThemeBlurTintColor, #222); border: 1px solid #9997; border-radius: 6px; padding: 8px; min-width: 0; width: 100%; }
+#np-panel textarea { resize: vertical; }
+#np-panel .np-reader .np-search { flex-wrap: wrap; }
+#np-panel .np-reader input[type=number] { flex: 1; width: 70px; }
+#np-panel .np-header small { font-size: 12px; opacity: .7; }
+#np-panel button:disabled { opacity: .45; cursor: default; }

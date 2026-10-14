@@ -47,3 +47,16 @@
 ## v0.1.3 原文插入位置（2026-10-14）
 
 默认改为 BEFORE_PROMPT 背景参考，在主提示词之前，不再以 depth=0 的末尾系统消息注入。既有用户无此设置时自动采用新默认；不改变小说库、聊天绑定、已有预设或聊天消息。可选「最近玩家发言之前」：IN_CHAT + USER，按最近 is_user 消息计算深度，提供单独参考消息，不拼改用户原话。去掉原文前缀中的剧情控制、写作和隐瞒检索要求，仅保留资料类型标注。实际位置仍受 ST 提示词管理器控制，可在 Prompt Inspector 核对。
+
+## v0.2.0 顺序小说阅读与原生工具（2026-10-14）
+
+本节覆盖旧版“不会自动推进”等说明。用户要让角色卡参考原著连续推进，AI 判断当前段结束并索取后续。实现最小闭环：
+
+- 新增 reader.js：cursorFor、readWindow、sequentialPrompt、advanceCursor、locatePassage、novelTools。顺序从现有 chunks 索引派生，用户看到 1-based 段号，内部 cursor 为 0-based。旧 IndexedDB 数据不迁移、不重切。章节默认锚点兼容。
+- index.js：默认顺序模式，既有 binding.readMode 缺省也采用顺序；关键词模式可切回。每聊天绑定持久化 cursor/viewed/readerId/allowTools/readMode。窗口显示版本、段号、前后切换、手动跳转、粘贴原文候选定位、每轮1至3连续段；上方强调复用旧书。
+- 通过 ctx.registerFunctionTool（ST release 1.19 官方 st-context.js 导出，tool-calling.js ToolManager）注册 novel_pocket_read 和 novel_pocket_advance。shouldRegister 动态检查当前绑定、enabled、readMode、allowTools。
+- read 默认读当前下一段，可指定全文段号及count(1..3)，返回当前进度和原文，不推进。advance 只允许 current+1、下一段已读取、expected current相符；reading_id 防换聊天/换书误提交。重复推进、跳段、书尾、错误会话返回错误结果。
+- 原文注入继续沿用 v0.1.3 背景默认 BEFORE_PROMPT；不改用户原话/预设。顺序头仅标当前/预读状态，工具行为规则放工具描述，不给额外写作格式要求。
+- 工具调用属于正常聊天生成，结果可能保留在酒馆工具记录中、增加上下文和正常模型用量。不要声称零工具token或工具结果自动替换。手动模式及原文注入仍替换自身extension prompt、不永久追加小说消息。
+- UI 读取 ctx.isToolCallingSupported 提示本地开关状态，不验证中转。ST canPerformToolCalls 排除 continue/quiet/impersonate，建议正常发送。工具未开启或模型不调用时手动推进，不自动反复重试、不额外轮询模型。
+- 16项Node自动测试通过，包括模拟DOM/IndexedDB/酒馆注册接口的串联测试。已进行所有 JS 语法检查。没有真实手机浏览器布局或用户中转端到端测试。后续先验证一次正常发送是否出现读原文/推进工具记录，再根据实际连接处理。

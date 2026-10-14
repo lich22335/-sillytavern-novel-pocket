@@ -138,10 +138,10 @@ export function makePrompt(book, results, maxCharacters = 6200) {
     let output = head;
     for (const match of results) {
         const name = book.chapters[match.chapter]?.title || `第 ${match.chapter + 1} 章`;
-        const block = `\n[${name} · 原文片段]\n${match.text}\n`;
+        const block = `\n[${name} · 全文第 ${(match.id ?? match.part) + 1} / ${book.chunks.length} 段 · 原文片段]\n${match.text}\n`;
         if (output.length + block.length > maxCharacters) {
             const rest = maxCharacters - output.length - name.length - 30;
-            if (rest > 120) output += `\n[${name} · 原文片段]\n${match.text.slice(0, rest)}\n`;
+            if (rest > 120) output += `\n[${name} · 全文第 ${(match.id ?? match.part) + 1} / ${book.chunks.length} 段 · 原文片段]\n${match.text.slice(0, rest)}\n`;
             break;
         }
         output += block;
