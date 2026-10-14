@@ -53,9 +53,11 @@ test('无章节的小说作为全文检索', () => {
     assert.ok(book.chunks.length > 1);
 });
 
-test('背景资料默认在主提示词之前，旧设置也使用新默认', () => {
-    assert.deepEqual(injectionPlacement(undefined), { position: 2, depth: 0, role: 0 });
-    assert.deepEqual(injectionPlacement('background'), { position: 2, depth: 0, role: 0 });
+test('背景资料在聊天历史开头，随聊天长度定位', () => {
+    assert.deepEqual(injectionPlacement(undefined), { position: 1, depth: 1, role: 0 });
+    assert.deepEqual(injectionPlacement('background'), { position: 1, depth: 1, role: 0 });
+    assert.deepEqual(injectionPlacement('background', [{}, {}, {}]), { position: 1, depth: 3, role: 0 });
+    assert.equal(injectionPlacement('background', [{}, {}, {}, {}]).depth, 4);
 });
 test('用户参考定位在最近玩家发言之前，不更改消息', () => {
     const chat = [{ is_user: true, mes: '去城堡' }, { is_user: false, mes: '到达城堡' }];

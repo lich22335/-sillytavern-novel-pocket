@@ -51,7 +51,7 @@ function report(message, isError = false) {
     if (isError) console.warn('[Novel Pocket]', message);
 }
 async function clearInjection() {
-    try { await context()?.setExtensionPrompt?.(PROMPT_KEY, '', 2, 0, false, 0); }
+    try { await context()?.setExtensionPrompt?.(PROMPT_KEY, '', 1, 0, false, 0); }
     catch (error) { console.warn('[Novel Pocket] Failed to clear prompt', error); }
 }
 async function openBook(id) {
@@ -353,7 +353,7 @@ function injectUI() {
       <button id="np-open" type="button" title="小说随身库">小说</button>
       <div id="np-overlay" hidden></div>
       <dialog id="np-panel" aria-label="小说随身库">
-        <header class="np-header"><div><strong>小说随身库 <small>0.2.1</small></strong><div class="np-small">顺序阅读 / 原文检索 · 本地小说库</div></div><button type="button" id="np-close" aria-label="关闭小说随身库">关闭</button></header>
+        <header class="np-header"><div><strong>小说随身库 <small>0.2.2</small></strong><div class="np-small">顺序阅读 / 原文检索 · 本地小说库</div></div><button type="button" id="np-close" aria-label="关闭小说随身库">关闭</button></header>
         <div class="np-body">
           <p class="np-hint" id="np-chat-label"></p>
           <label for="np-books">本聊天使用的小说</label><select id="np-books"></select>
@@ -383,7 +383,7 @@ function injectUI() {
             <label for="np-sequence-count">顺序模式每轮提供</label><select id="np-sequence-count"><option value="1">当前 1 段</option><option value="2">当前 + 下一段（2 段）</option><option value="3">连续 3 段</option></select>
             <label class="np-toggle"><input type="checkbox" id="np-tools-enabled" /><span>允许 AI 读取后续并推进一段</span></label><p id="np-tool-status" class="np-hint"></p>
             <p class="np-hint">工具记录与后续回复会增加用量；不能调用时，浏览下一段后点「从这里开始」。</p>
-            <label for="np-injection-mode">原文插入位置</label><select id="np-injection-mode"><option value="background">背景资料（主提示词之前）</option><option value="user">最近玩家发言之前</option></select>
+            <label for="np-injection-mode">原文插入位置</label><select id="np-injection-mode"><option value="background">预设之后、聊天正文之前（默认）</option><option value="user">最近玩家发言之前</option></select>
             <label for="np-chapter">关键词检索优先章节</label><select id="np-chapter"></select>
             <label for="np-count">关键词检索片段数</label><select id="np-count"><option value="3">3段</option><option value="4">4段</option><option value="5">5段</option><option value="6">6段</option><option value="8">8段</option></select>
             <label for="np-budget">每轮原文字数上限</label><select id="np-budget"><option value="3000">3000字</option><option value="4500">4500字</option><option value="6200">6200字</option><option value="8000">8000字</option></select>

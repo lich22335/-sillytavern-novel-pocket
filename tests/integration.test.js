@@ -42,7 +42,8 @@ test('管理窗口、原生工具、进度保存与跨聊天隔离串联验证',
     let prefs=JSON.parse(values.get('novel-pocket-settings-v1'));
     const readingId=prefs.chatBindings['character:card.png:chat-A'].readerId;
     const injection=prompts.get('novel-pocket-reference-v1');
-    assert.equal(injection.position,2);
+    assert.equal(injection.position,1);
+    assert.equal(injection.depth,ctx.chat.length);
     assert.match(injection.text,/第 1 \/ 3 段/);
     assert.match(injection.text,/第 2 \/ 3 段/);
     const read=tools.get('novel_pocket_read'), advance=tools.get('novel_pocket_advance');

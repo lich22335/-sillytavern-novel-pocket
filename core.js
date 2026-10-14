@@ -149,10 +149,10 @@ export function makePrompt(book, results, maxCharacters = 6200) {
     return output + '\n【原著参考结束】';
 }
 
-/** Background precedes the main prompt; user reference precedes the last player message. */
+/** Background sits at the beginning of chat history, after the preset section. */
 export function injectionPlacement(mode, messages = []) {
-    if (mode !== 'user') return { position: 2, depth: 0, role: 0 };
     const chat = Array.isArray(messages) ? messages : [];
+    if (mode !== 'user') return { position: 1, depth: Math.max(1, chat.length), role: 0 };
     let index = chat.length - 1;
     while (index >= 0 && !chat[index]?.is_user) index--;
     return { position: 1, depth: index >= 0 ? chat.length - index : 1, role: 1 };
