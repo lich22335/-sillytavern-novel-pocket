@@ -1,0 +1,6 @@
+{
+  "name": "sillytavern-novel-pocket",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}
