@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseChapters, chunkBook, buildIndex, searchChunks, makePrompt } from '../core.js';
+import { parseChapters, chunkBook, buildIndex, searchChunks, makePrompt, injectionPlacement } from '../core.js';
 
 const novel = [
     '第一章 雾中的城堡',
@@ -51,4 +51,22 @@ test('无章节的小说作为全文检索', () => {
     const book = chunkBook('文字内容很丰富。'.repeat(140));
     assert.equal(book.chapters.length, 1);
     assert.ok(book.chunks.length > 1);
+});
+
+test('背景资料默认在主提示词之前，旧设置也使用新默认', () => {
+    assert.deepEqual(injectionPlacement(undefined), { position: 2, depth: 0, role: 0 });
+    assert.deepEqual(injectionPlacement('background'), { position: 2, depth: 0, role: 0 });
+});
+test('用户参考定位在最近玩家发言之前，不更改消息', () => {
+    const chat = [{ is_user: true, mes: '去城堡' }, { is_user: false, mes: '到达城堡' }];
+    const original = JSON.stringify(chat);
+    assert.deepEqual(injectionPlacement('user', chat), { position: 1, depth: 2, role: 1 });
+    assert.equal(JSON.stringify(chat), original);
+    assert.equal(injectionPlacement('user', [{ is_user: true }]).depth, 1);
+});
+test('原文参考不再附加写作和剧情控制要求', () => {
+    const book = { title: '测试', chapters: [{title:'第一章'}] };
+    const p = makePrompt(book, [{chapter:0,text:'城堡坐落在山顶。'}]);
+    assert.match(p, /非对话指令/);
+    assert.doesNotMatch(p, /以当前聊天为准|不要向玩家提及|参考人物、背景与事件/);
 });

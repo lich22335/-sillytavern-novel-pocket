@@ -1,9 +1,9 @@
-import { chunkBook, buildIndex, searchChunks, makePrompt } from './core.js';
+import { chunkBook, buildIndex, searchChunks, makePrompt, injectionPlacement } from './core.js';
 import { saveBook, loadBook, deleteBook, listBooks } from './storage.js';
 
 const PROMPT_KEY = 'novel-pocket-reference-v1';
 const PREF_KEY = 'novel-pocket-settings-v1';
-const defaults = { count: 5, maxChars: 6200, chatBindings: {} };
+const defaults = { count: 5, maxChars: 6200, injectionMode: 'background', chatBindings: {} };
 let preferences = readPreferences();
 let active = null; // Single active book cached in memory, never sent to a remote API.
 let activeIndex = null;
@@ -47,7 +47,7 @@ function report(message, isError = false) {
     if (isError) console.warn('[Novel Pocket]', message);
 }
 async function clearInjection() {
-    try { await context()?.setExtensionPrompt?.(PROMPT_KEY, '', 1, 0, false, 0); }
+    try { await context()?.setExtensionPrompt?.(PROMPT_KEY, '', 2, 0, false, 0); }
     catch (error) { console.warn('[Novel Pocket] Failed to clear prompt', error); }
 }
 async function openBook(id) {
@@ -87,9 +87,10 @@ globalThis.NovelPocket_beforeGeneration = async function (_chat, _contextSize, _
         });
         const prompt = makePrompt(book, matches, preferences.maxChars);
         if (!prompt) return;
-        // Guard against changes while IndexedDB retrieval was in flight.
+        // Clear and replace our own reference only; preset and chat messages stay intact.
         if (key !== chatKey() || !preferences.chatBindings[key]?.enabled) return;
-        await context()?.setExtensionPrompt?.(PROMPT_KEY, prompt, 1, 0, false, 0);
+        const placement = injectionPlacement(preferences.injectionMode, context()?.chat);
+        await context()?.setExtensionPrompt?.(PROMPT_KEY, prompt, placement.position, placement.depth, false, placement.role);
         lastMatches = matches;
         lastTitle = book.title;
         renderLastMatches();
@@ -137,6 +138,7 @@ async function syncPanel() {
     el('np-enabled').checked = Boolean(binding?.enabled);
     el('np-count').value = String(preferences.count);
     el('np-budget').value = String(preferences.maxChars);
+    el('np-injection-mode').value = preferences.injectionMode === 'user' ? 'user' : 'background';
     el('np-chat-label').textContent = key ? '当前聊天：可单独绑定小说' : '请先打开一个已保存的角色聊天';
     for (const id of ['np-books', 'np-enabled', 'np-chapter']) el(id).disabled = !key;
     const book = binding?.bookId ? await openBook(binding.bookId) : null;
@@ -218,6 +220,9 @@ function injectUI() {
           <label for="np-books">本聊天使用的小说</label>
           <select id="np-books"></select>
           <label class="np-toggle"><input type="checkbox" id="np-enabled" /> <span>聊天时自动检索并注入原文</span></label>
+          <label for="np-injection-mode">原文插入位置</label>
+          <select id="np-injection-mode"><option value="background">背景资料（主提示词之前，默认）</option><option value="user">最近玩家发言之前（单独的用户参考消息）</option></select>
+          <p class="np-hint">原文单独提供，不改你的发言或预设；最终顺序受酒馆提示词管理器设置影响。</p>
           <label for="np-chapter">当前剧情所在章节（可不选）</label>
           <select id="np-chapter"></select>
           <div class="np-grid">
@@ -271,6 +276,12 @@ function injectUI() {
     });
     el('np-count').addEventListener('change', e => { preferences.count = Number(e.target.value); persist(); });
     el('np-budget').addEventListener('change', e => { preferences.maxChars = Number(e.target.value); persist(); });
+    el('np-injection-mode').addEventListener('change', e => {
+        preferences.injectionMode = e.target.value === 'user' ? 'user' : 'background';
+        persist();
+        clearInjection().catch(error => report(error.message, true));
+        report('插入位置已保存，下次回复生效。');
+    });
     el('np-search-btn').addEventListener('click', runPreview);
     el('np-query').addEventListener('keydown', e => { if (e.key === 'Enter') runPreview(); });
     el('np-delete').addEventListener('click', () => removeBook().catch(err => report(err.message, true)));
