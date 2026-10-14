@@ -31,3 +31,11 @@
 2. 支持 TXT 更复杂章标题、EPUB 导入、文件大小和浏览器储存配额提示。
 3. 若用户实际体验认为检索不相关，给查询提取增加中文分词 / Ollama embedding 可选项；不要预先耗费大量模型 Token 摘要整本小说。
 4. 允许用户按段落（而不是只有按章）手动锚定开局；增加导出导入 IndexedDB 备份功能。
+
+
+## v0.1.1 bootstrap 修复
+
+- `manifest.json` 的 `js` 入口改为 `bootstrap.js`，此文件不使用静态 import，先创建高层级悬浮入口。
+- `bootstrap.js` 再动态 import 原来的 `index.js`；点击入口时打开原面板，导入失败时显示精确错误。
+- 扩展设置中增加备用按钮；旧内部 `#np-open` 隐藏，但保留 click 事件，供 bootstrap 调用。
+- 注意：未在真实 SillyTavern 移动端完成验证。

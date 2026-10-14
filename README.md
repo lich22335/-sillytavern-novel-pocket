@@ -2,7 +2,7 @@
 
 一个给 SillyTavern 酒馆玩的轻量原文检索扩展：上传小说 TXT/Markdown，自动拆章节、分段；每轮聊天前根据最近消息自动检索少量相关原文，并作为参考注入提示词。**不需要额外模型、不生成摘要、不消耗额外的模型调用。**
 
-## 安装（本地测试版）
+## 安装（v0.1.1 手机入口修复）
 
 1. 下载 `sillytavern-novel-pocket.zip`，解压得到 `sillytavern-novel-pocket` 文件夹。
 2. 将**整个文件夹**复制到 SillyTavern 的 `public/scripts/extensions/third-party/` 目录。确保路径为 `public/scripts/extensions/third-party/sillytavern-novel-pocket/manifest.json`。
@@ -41,3 +41,12 @@
 ## 项目开发交接
 
 见 `HANDOFF.md`，记录设计取舍和后续优先事项。
+
+
+## v0.1.1 手机界面修复
+
+- 加入无依赖 `bootstrap.js` 入口，即使主模块导入失败，也会显示蓝色「小说」按钮并可点击查看具体错误。
+- 入口使用内联样式，在 `style.css` 加载异常时仍能显示。
+- 酒馆扩展设置页面新增「小说随身库 · 打开管理窗口」按钮，提供备用入口。
+- 修复版安装后需 **更新扩展并刷新页面**；如果使用 GitHub 安装，确保仓库根目录包含 `bootstrap.js`，且 `manifest.json` 的 `js` 字段为 `bootstrap.js`。
+- 这版未经真实手机酒馆端到端验证；若点击按钮出现报错，截图提示即可定位下一步。

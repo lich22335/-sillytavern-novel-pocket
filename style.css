@@ -30,3 +30,6 @@
 #np-status { border-top: 1px solid #9994; padding: 10px 17px; font-size: 12px; }
 #np-status[data-error=true] { color: #ffb1b1; }
 @media (max-width: 600px) { #np-open { right: 10px; bottom: 90px; } #np-panel { max-height: 87dvh; } }
+
+/* The reliable bootstrap owns the visible launcher; hide the old internal one. */
+#np-open { display: none !important; }
