@@ -79,7 +79,7 @@ test('管理窗口、原生工具、进度保存与跨聊天隔离串联验证',
     assert.equal(nodes.get('np-block-preview').textContent,book.chunks[1].text);
     // Upgrade a legacy book through the same file picker, without duplicating library entries.
     await nodes.get('np-rechunk').click();
-    const raw = '第一章\n'+book.chunks.map(c=>c.text).join('\n\n')+'\n第二章\n新的完整剧情。';
+    const raw = '第一章\n'+book.chunks[0].text+book.chunks[1].text.repeat(6)+book.chunks[2].text+'\n第二章\n新的完整剧情。';
     const bytes = new TextEncoder().encode(raw);
     nodes.get('np-upload').files=[{name:'测试书.txt',size:bytes.length,arrayBuffer:async()=>bytes.buffer}];
     await nodes.get('np-upload').fire('change');
@@ -94,5 +94,23 @@ test('管理窗口、原生工具、进度保存与跨聊天隔离串联验证',
     assert.match((await read.action({reading_id:readingId,block:1})).error,/会话已改变/);
     await globalThis.NovelPocket_beforeGeneration([],10000,null,'normal');
     assert.ok(prompts.get('novel-pocket-reference-v1').text.includes(book.chunks[1].text));
+    const fullChapter=books.get(book.id).chunks[0].text;
+    assert.equal(nodes.get('np-block-preview').textContent,fullChapter);
+    assert.equal(prefs.maxChars,4500);
+    assert.ok(!prompts.get('novel-pocket-reference-v1').text.includes(fullChapter));
+    await nodes.get('np-batch-next').click();
+    prefs=JSON.parse(values.get('novel-pocket-settings-v1'));
+    const moved=prefs.chatBindings['character:card.png:chat-B'];
+    assert.equal(moved.cursor,0); assert.ok(moved.offset>0);
+    assert.equal(nodes.get('np-block-preview').textContent,fullChapter);
+    await nodes.get('np-batch-prev').click();
+    await globalThis.NovelPocket_beforeGeneration([],10000,null,'normal');
+    prefs=JSON.parse(values.get('novel-pocket-settings-v1'));
+    const session=prefs.chatBindings['character:card.png:chat-B'].readerId;
+    const more=await read.action({reading_id:session,count:3});
+    assert.ok(more.blocks.reduce((sum,b)=>sum+b.text.length,0)<=4500);
+    assert.equal(more.progress_changed,false);
+    const again=await read.action({reading_id:session,count:3});
+    assert.match(again.error,/额度已用完|小说末尾/);
     await nodes.get('np-close-bottom').click(); assert.equal(nodes.get('np-panel').open,false);
 });

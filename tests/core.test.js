@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseChapters, chunkBook, buildIndex, searchChunks, makePrompt, injectionPlacement, rebuildBook } from '../core.js';
+import { parseChapters, chunkBook, buildIndex, searchChunks, makePrompt, injectionPlacement, rebuildBook, boundedText } from '../core.js';
 
 const novel = [
     '第一章 雾中的城堡',
@@ -108,11 +108,12 @@ test('关键词索引覆盖完整长章开头，不只扫描末尾三千字', ()
     const result=searchChunks(buildIndex(book.chunks),book.chunks,'翡翠鹦鹉',{limit:1});
     assert.equal(result[0].chapter,0); assert.ok(result[0].score > 0);
 });
-test('预算只能减少整章数量，不能在提示词阶段又截断剧情', () => {
+test('关键词参考严格限量，截取部分原文会标注后续未发送', () => {
     const text='甲'.repeat(7000)+'结尾关键事件。';
     const book={title:'测试',...chunkBook('第一章\n'+text+'\n第二章\n另一件事。')};
     const result=makePrompt(book,book.chunks.map((c,id)=>({id,...c})),1000);
-    assert.ok(result.includes(text)); assert.ok(!result.includes('另一件事。'));
+    assert.ok(!result.includes(text)); assert.ok(!result.includes('结尾关键事件。'));
+    assert.ok(result.includes('甲'.repeat(1000))); assert.match(result,/后续未发送/); assert.ok(!result.includes('另一件事。'));
 });
 test('旧书重切必须提供原文，保留书ID并映射所有聊天进度', () => {
     const old={id:'old',title:'旧书',chapters:[{title:'第一章'},{title:'第二章'}],chunks:[
@@ -127,4 +128,21 @@ test('旧书重切必须提供原文，保留书ID并映射所有聊天进度', 
     assert.equal(result.bindings.A.readerId,''); assert.deepEqual(result.bindings.A.viewed,[]);
     assert.equal(result.bindings.Other,bindings.Other);
     assert.equal(bindings.A.cursor,1); assert.equal(old.chunks.length,3);
+});
+
+test('发送优先自然段，超长自然段退到句末，再无标点才按限额拆批', () => {
+    assert.equal(boundedText('甲'.repeat(500)+'\n'+'乙'.repeat(2000),0,1000).endOffset,501);
+    assert.equal(boundedText('甲'.repeat(800)+'。'+'乙'.repeat(1000),0,1000).endOffset,801);
+    assert.equal(boundedText('甲'.repeat(20000),0,4500).text.length,4500);
+});
+test('批次连续保留所有字符，包含换行和emoji，无遗漏、无重复', () => {
+    const text=('正文😀。\n第二自然段。\n\n').repeat(600);
+    let offset=0,joined='';
+    while(offset<text.length) {
+        const part=boundedText(text,offset,401);
+        assert.ok(part.text.length<=401 && part.endOffset>offset);
+        assert.ok(!/[\uD800-\uDBFF]$/.test(part.text));
+        joined+=part.text; offset=part.endOffset;
+    }
+    assert.equal(joined,text);
 });

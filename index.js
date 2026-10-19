@@ -1,10 +1,10 @@
 import { chunkBook, buildIndex, searchChunks, makePrompt, injectionPlacement, rebuildBook, chunkLabel } from './core.js';
-import { cursorFor, readWindow, sequentialPrompt, advanceCursor, locatePassage, novelTools } from './reader.js';
+import { cursorFor, readWindow, sequentialPrompt, advancePosition, offsetFor, recordRead, nextReadPosition, locatePassage, novelTools } from './reader.js';
 import { saveBook, loadBook, deleteBook, listBooks } from './storage.js';
 
 const PROMPT_KEY = 'novel-pocket-reference-v1';
 const PREF_KEY = 'novel-pocket-settings-v1';
-const defaults = { count: 5, maxChars: 6200, injectionMode: 'background', sequenceCount: 2, chatBindings: {} };
+const defaults = { count: 5, maxChars: 4500, injectionMode: 'background', sequenceCount: 2, deliveryVersion:1, chatBindings: {} };
 let preferences = readPreferences();
 let active = null; // Single active book cached in memory, never sent to a remote API.
 let activeIndex = null;
@@ -15,12 +15,14 @@ let lastMatches = [];
 let lastTitle = '';
 let browseSelection = null;
 let pendingRebuildId = null;
+let toolTurn = null;
 const el = id => document.getElementById(id);
 
 function readPreferences() {
     try {
         const parsed = JSON.parse(localStorage.getItem(PREF_KEY) || '{}');
-        return { ...defaults, ...parsed, chatBindings: parsed.chatBindings || {} };
+        const safeBudget = parsed.deliveryVersion === 1 ? parsed.maxChars : Math.min(Number(parsed.maxChars) || 4500,4500);
+        return { ...defaults, ...parsed, maxChars: Math.max(400,Math.min(8000,Number(safeBudget)||4500)), deliveryVersion:1, chatBindings: parsed.chatBindings || {} };
     } catch { return { ...defaults, chatBindings: {} }; }
 }
 function persist() {
@@ -43,7 +45,7 @@ function currentBinding() {
 function bindingForCurrent(create = false) {
     const key = chatKey();
     if (!key) return null;
-    if (create && !preferences.chatBindings[key]) preferences.chatBindings[key] = { bookId: '', enabled: false, chapter: null, readMode: 'sequence', cursor: 0, viewed: [], allowTools: true };
+    if (create && !preferences.chatBindings[key]) preferences.chatBindings[key] = { bookId: '', enabled: false, chapter: null, readMode: 'sequence', cursor: 0, offset:0, viewed: [], viewedRanges:{}, batchHistory:[], allowTools: true };
     return preferences.chatBindings[key] || null;
 }
 function report(message, isError = false) {
@@ -89,7 +91,7 @@ globalThis.NovelPocket_beforeGeneration = async function (_chat, _contextSize, _
         registerReaderTools();
         const sequential = binding.readMode !== 'keyword';
         const matches = sequential
-            ? readWindow(book, cursorFor(book, binding), preferences.sequenceCount, preferences.maxChars)
+            ? readWindow(book, cursorFor(book, binding), preferences.sequenceCount, preferences.maxChars, offsetFor(book,binding))
             : searchChunks(activeIndex, book.chunks, chatQuery(context()?.chat), {
                 limit: preferences.count, chapter: Number.isInteger(binding.chapter) ? binding.chapter : null,
             });
@@ -187,7 +189,7 @@ async function importFile(file) {
         await saveBook(book);
         active = null; activeIndex = null;
         const bind = bindingForCurrent(true);
-        if (bind) { bind.bookId = id; bind.chapter = null; bind.enabled = true; bind.readMode = 'sequence'; bind.cursor = 0; bind.viewed = []; bind.readerId = ''; persist(); }
+        if (bind) { bind.bookId = id; bind.chapter = null; bind.enabled = true; bind.readMode = 'sequence'; bind.cursor = 0; bind.offset=0; bind.viewed = []; bind.viewedRanges={}; bind.batchHistory=[]; bind.readerId = ''; persist(); }
         await syncPanel();
         report(`导入成功：${title}，${result.chapters.length} 章、${result.chunks.length} 段。${bind ? '已在当前聊天启用。' : '请先打开聊天再绑定。'}`);
     } catch (error) { report('导入失败：' + (error?.message || error), true); }
@@ -239,10 +241,17 @@ function ensureReaderId(binding) {
     if (binding && !binding.readerId) { binding.readerId = `reading-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`; persist(); }
 }
 function rememberViewed(binding, blocks) {
-    const seen = new Set([...(binding.viewed || []), ...blocks.map(b => b.block)]);
-    binding.viewed = [...seen].slice(-24);
+    recordRead(binding,blocks);
+    binding.viewed = [...new Set([...(binding.viewed || []), ...blocks.filter(b=>b.complete && b.offset===0).map(b=>b.block)])].slice(-24);
     persist();
 }
+function toolAllowance() {
+    const user = [...(context()?.chat || [])].reverse().find(m=>m?.is_user);
+    const key = chatKey();
+    if (!toolTurn || toolTurn.key!==key || toolTurn.user!==user || toolTurn.mes!==user?.mes) toolTurn={key,user,mes:user?.mes,used:0};
+    return toolTurn;
+}
+
 function syncReaderControls(book, binding) {
     ensureReaderId(binding);
     const sequential = binding?.readMode !== 'keyword';
@@ -258,9 +267,15 @@ function syncReaderControls(book, binding) {
     else if (browseSelection?.key !== key || browseSelection?.bookId !== book.id) browseSelection = { key, bookId: book.id, index: cursor };
     for (const id of ['np-prev','np-next','np-block','np-jump','np-anchor','np-locate','np-browse-chapter','np-current','np-anchor-apply']) el(id).disabled = !book;
     renderBrowsePreview(book);
+    el('np-batch-prev').disabled = !book || (cursor===0 && offsetFor(book,binding)===0);
+    el('np-batch-next').disabled = !book;
+    if (book) {
+        const part=readWindow(book,cursor,1,preferences.maxChars,offsetFor(book,binding))[0];
+        el('np-batch-info').textContent = `AI 当前从章内第 ${part.offset+1} 字开始，本批到第 ${part.endOffset} 字 / 共 ${part.totalChars} 字；每次原文最多 ${preferences.maxChars} 字符。完整原文仍在下面预览。`;
+    } else el('np-batch-info').textContent='';
     el('np-rechunk').disabled = !book;
     el('np-rechunk').textContent = book?.sourceText ? '按章节重新切分' : '更新旧书分段（重新选原 TXT）';
-    el('np-chunk-info').textContent = !book ? '新导入小说优先一章一段。' : book.chunkVersion === 2 ? '章节优先：普通章节完整保留；超过 12000 字符才按自然段拆分，段内不硬切。' : '这本书仍是旧版碎片，更新插件不会自动改动它。用下面按钮重新选择原 TXT，保持同一本书和聊天绑定。';
+    el('np-chunk-info').textContent = !book ? '新导入小说优先一章一段。' : book.chunkVersion === 2 ? '章节原文完整保存；发给 AI 时按自然段分批，超长自然段优先在句末断开，保留后续位置。' : '这本书仍是旧版碎片，更新插件不会自动改动它。用下面按钮重新选择原 TXT，保持同一本书和聊天绑定。';
     const supported = context()?.isToolCallingSupported?.();
     el('np-tool-status').textContent = toolRegistrationError ? `工具接口未就绪：${toolRegistrationError}；手动切换仍可用。`
         : !toolsRegistered ? '工具接口未就绪，手动切换可用。'
@@ -271,12 +286,36 @@ function setProgress(cursor) {
     const b = currentBinding();
     if (!b?.bookId || active?.id !== b.bookId) return report('先选择小说。', true);
     if (!Number.isInteger(cursor) || cursor < 0 || cursor >= active.chunks.length) return report('段号超出小说范围。', true);
-    b.cursor = cursor; b.chapter = active.chunks[cursor].chapter; b.viewed = []; b.readMode = 'sequence';
+    b.cursor = cursor; b.chapter = active.chunks[cursor].chapter; b.viewed = []; b.viewedRanges={}; b.offset=0; b.batchHistory=[]; b.readerId=''; b.readMode = 'sequence';
     browseSelection = { key:chatKey(), bookId:active.id, index:cursor };
     persist(); clearInjection();
     syncReaderControls(active, b);
     report(`当前进度已设为第 ${cursor + 1} 段，下次回复生效。`);
 }
+function moveBatch(direction) {
+    const b=currentBinding(); if (!active || active.id!==b?.bookId) return report('先选择小说。',true);
+    let cursor=cursorFor(active,b), offset=offsetFor(active,b);
+    const history=b.batchHistory || [];
+    if (direction>0) {
+        const part=readWindow(active,cursor,1,preferences.maxChars,offset)[0];
+        if(part.complete) { if(cursor+1>=active.chunks.length) return report('已到最后一批。'); cursor++; offset=0; }
+        else offset=part.endOffset;
+        b.batchHistory=[...history,{cursor:cursorFor(active,b),offset:offsetFor(active,b)}].slice(-100);
+    } else if(history.length) {
+        const previous=history.at(-1); cursor=previous.cursor; offset=previous.offset;
+        b.batchHistory=history.slice(0,-1);
+    } else {
+        if(offset===0) { if(cursor===0) return; cursor--; offset=active.chunks[cursor].text.length; }
+        let start=0, previous=0;
+        while(start<offset) { previous=start; const part=readWindow(active,cursor,1,preferences.maxChars,start)[0]; start=part.endOffset; }
+        offset=previous;
+    }
+    b.cursor=cursor; b.offset=offset; b.chapter=active.chunks[cursor].chapter; b.readerId='';
+    b.readMode='sequence'; b.viewedRanges={}; b.viewed=[];
+    persist(); clearInjection(); syncReaderControls(active,b);
+    report(`AI 进度已设为第 ${cursor+1} 段，章内第 ${offset+1} 字开始，下次回复生效。`);
+}
+
 function renderBrowsePreview(book = active) {
     const selected = browseSelection;
     if (!book || selected?.bookId !== book.id || selected.key !== chatKey()) {
@@ -344,22 +383,30 @@ function registerReaderTools() {
             read: async (p = {}) => {
                 try {
                     const { book, binding } = await toolBook(p.reading_id);
-                    const block = p.block ?? cursorFor(book, binding) + 2;
+                    const next = p.block == null && p.offset == null ? nextReadPosition(book,binding) : {block:p.block ?? cursorFor(book,binding)+1,offset:p.offset ?? 0};
+                    if (!next) throw new Error('已读取到小说末尾');
                     const count = p.count ?? 1;
-                    if (!Number.isInteger(block) || !Number.isInteger(count) || count < 1 || count > 3) throw new Error('block/count 必须是合法整数，count为1至3');
-                    const blocks = readWindow(book, block - 1, count, preferences.maxChars);
+                    if (!Number.isInteger(next.block) || !Number.isInteger(next.offset) || !Number.isInteger(count) || count < 1 || count > 3) throw new Error('段号、偏移和count必须是合法整数，count为1至3');
+                    const quota = toolAllowance();
+                    const remaining = preferences.maxChars - quota.used;
+                    if (remaining < 400) throw new Error('本条玩家消息的额外取文额度已用完；请发送下一条消息再继续读取，或手动切换批次');
+                    const blocks = readWindow(book, next.block - 1, count, remaining, next.offset);
+                    if (!blocks.length) throw new Error('该位置没有原文，请使用上一批end_offset继续读取');
+                    quota.used += blocks.reduce((sum,b)=>sum+b.text.length,0);
                     rememberViewed(binding, blocks);
-                    return { book: book.title, current_block: cursorFor(book, binding) + 1, total_blocks: book.chunks.length, progress_changed: false, blocks: blocks.map(({block, chapterTitle, text}) => ({block, chapter:chapterTitle, text})) };
+                    return { book: book.title, current_block: cursorFor(book,binding)+1, current_offset:offsetFor(book,binding), total_blocks:book.chunks.length, progress_changed:false, remaining_tool_chars:preferences.maxChars-quota.used, blocks:blocks.map(({block,chapterTitle,text,offset,endOffset,complete,totalChars})=>({block,chapter:chapterTitle,text,offset,end_offset:endOffset,complete,total_chars:totalChars})) };
                 } catch (e) { return { error: e.message }; }
             },
             advance: async (p = {}) => {
                 try {
                     const { book, binding } = await toolBook(p.reading_id);
-                    binding.cursor = advanceCursor(book, binding, p.current_block, p.to_block);
+                    const position=advancePosition(book,binding,p.current_block,p.current_offset ?? 0,p.to_block,p.to_offset ?? 0);
+                    binding.batchHistory=[...(binding.batchHistory||[]),{cursor:cursorFor(book,binding),offset:offsetFor(book,binding)}].slice(-100);
+                    binding.cursor=position.cursor; binding.offset=position.offset;
                     binding.chapter = book.chunks[binding.cursor].chapter; persist();
                     if (el('np-panel')?.open) syncReaderControls(book, binding);
                     await clearInjection();
-                    return { current_block: binding.cursor + 1, total_blocks: book.chunks.length, progress_changed: true };
+                    return { current_block: binding.cursor + 1, current_offset:binding.offset, total_blocks: book.chunks.length, progress_changed: true };
                 } catch (e) { return { error: e.message }; }
             },
         });
@@ -375,7 +422,7 @@ function injectUI() {
       <button id="np-open" type="button" title="小说随身库">小说</button>
       <div id="np-overlay" hidden></div>
       <dialog id="np-panel" aria-label="小说随身库">
-        <header class="np-header"><div><strong>小说随身库 <small>0.3.0</small></strong><div class="np-small">顺序阅读 / 原文检索 · 本地小说库</div></div><button type="button" id="np-close" aria-label="关闭小说随身库">关闭</button></header>
+        <header class="np-header"><div><strong>小说随身库 <small>0.3.1</small></strong><div class="np-small">顺序阅读 / 原文检索 · 本地小说库</div></div><button type="button" id="np-close" aria-label="关闭小说随身库">关闭</button></header>
         <div class="np-body">
           <p class="np-hint" id="np-chat-label"></p>
           <label for="np-books">本聊天使用的小说</label><select id="np-books"></select>
@@ -385,7 +432,7 @@ function injectUI() {
             <input type="file" id="np-upload" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden />
           </details>
           <section id="np-reader-controls" class="np-reader">
-            <strong id="np-progress">尚未选择小说</strong><p id="np-chunk-info" class="np-hint"></p>
+            <strong id="np-progress">尚未选择小说</strong><p id="np-chunk-info" class="np-hint"></p><p id="np-batch-info" class="np-hint"></p><div class="np-browse-nav"><button type="button" id="np-batch-prev">AI 上一批</button><button type="button" id="np-batch-next">AI 下一批</button></div>
             <p class="np-hint">先浏览原文，选好后点「从这里开始」。浏览不会改变剧情进度。</p>
             <label for="np-browse-chapter">按章节找片段</label><select id="np-browse-chapter"></select>
             <div class="np-browse-nav"><button type="button" id="np-prev">上一段</button><button type="button" id="np-next">下一段</button><button type="button" id="np-current">回到当前进度</button></div>
@@ -402,13 +449,13 @@ function injectUI() {
           <details class="np-fold" id="np-options"><summary>阅读设置 / AI 自动推进</summary>
             <label class="np-toggle"><input type="checkbox" id="np-enabled" /><span>向当前聊天提供小说原文</span></label>
             <label for="np-read-mode">阅读方式</label><select id="np-read-mode"><option value="sequence">顺序剧情</option><option value="keyword">关键词检索（自由探索）</option></select>
-            <label for="np-sequence-count">顺序模式每轮提供</label><select id="np-sequence-count"><option value="1">当前 1 段</option><option value="2">当前 + 下一段（2 段）</option><option value="3">连续 3 段</option></select>
+            <label for="np-sequence-count">顺序模式最多参考章节/段数（受字符限额约束）</label><select id="np-sequence-count"><option value="1">只参考当前章/段</option><option value="2">最多当前 + 下一章/段</option><option value="3">最多连续 3 章/段</option></select>
             <label class="np-toggle"><input type="checkbox" id="np-tools-enabled" /><span>允许 AI 读取后续并推进一段</span></label><p id="np-tool-status" class="np-hint"></p>
             <p class="np-hint">工具记录与后续回复会增加用量；不能调用时，浏览下一段后点「从这里开始」。</p>
             <label for="np-injection-mode">原文插入位置</label><select id="np-injection-mode"><option value="background">预设之后、聊天正文之前（默认）</option><option value="user">最近玩家发言之前</option></select>
             <label for="np-chapter">关键词检索优先章节</label><select id="np-chapter"></select>
             <label for="np-count">关键词检索片段数</label><select id="np-count"><option value="3">3段</option><option value="4">4段</option><option value="5">5段</option><option value="6">6段</option><option value="8">8段</option></select>
-            <label for="np-budget">每轮原文字数预算（优先保留完整章，首章可超出）</label><select id="np-budget"><option value="3000">3000字</option><option value="4500">4500字</option><option value="6200">6200字</option><option value="8000">8000字</option></select>
+            <label for="np-budget">每次发送原文字符上限（严格限制，不是 Token 数）</label><select id="np-budget"><option value="3000">3000字</option><option value="4500">4500字</option><option value="6200">6200字</option><option value="8000">8000字</option></select>
           </details>
           <details class="np-fold"><summary>查看参考记录 / 检索测试</summary>
             <label for="np-query">关键词（留空用当前对话）</label><div class="np-search"><input type="text" id="np-query" placeholder="人名、事件、地点" /><button type="button" id="np-search-btn">查找</button></div>
@@ -452,7 +499,7 @@ function injectUI() {
     el('np-books').addEventListener('change', async event => {
         const b = bindingForCurrent(true);
         if (!b) return;
-        b.bookId = event.target.value; b.chapter = null; b.enabled = Boolean(b.bookId); b.cursor = 0; b.viewed = []; b.readerId = '';
+        b.bookId = event.target.value; b.chapter = null; b.enabled = Boolean(b.bookId); b.cursor = 0; b.offset=0; b.viewed = []; b.viewedRanges={}; b.batchHistory=[]; b.readerId = '';
         el('np-anchor-results').hidden = true;
         persist(); active = null; activeIndex = null; await clearInjection(); await syncPanel();
     });
@@ -477,6 +524,8 @@ function injectUI() {
         b.allowTools = e.target.checked; persist(); syncReaderControls(active, b);
     });
     el('np-sequence-count').addEventListener('change', e => { preferences.sequenceCount = Number(e.target.value); persist(); clearInjection(); });
+    el('np-batch-prev').addEventListener('click', () => moveBatch(-1));
+    el('np-batch-next').addEventListener('click', () => moveBatch(1));
     el('np-prev').addEventListener('click', () => movePreview(-1));
     el('np-next').addEventListener('click', () => movePreview(1));
     el('np-jump').addEventListener('click', () => browseBlock(Number(el('np-block').value) - 1));
@@ -495,7 +544,7 @@ function injectUI() {
         setProgress(browseSelection.index);
     });
     el('np-count').addEventListener('change', e => { preferences.count = Number(e.target.value); persist(); });
-    el('np-budget').addEventListener('change', e => { preferences.maxChars = Number(e.target.value); persist(); });
+    el('np-budget').addEventListener('change', e => { preferences.maxChars = Number(e.target.value); preferences.deliveryVersion=1; persist(); clearInjection(); syncReaderControls(active,currentBinding()); });
     el('np-injection-mode').addEventListener('change', e => {
         preferences.injectionMode = e.target.value === 'user' ? 'user' : 'background';
         persist();
