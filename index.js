@@ -1,4 +1,4 @@
-import { chunkBook, buildIndex, searchChunks, makePrompt, injectionPlacement } from './core.js';
+import { chunkBook, buildIndex, searchChunks, makePrompt, injectionPlacement, rebuildBook, chunkLabel } from './core.js';
 import { cursorFor, readWindow, sequentialPrompt, advanceCursor, locatePassage, novelTools } from './reader.js';
 import { saveBook, loadBook, deleteBook, listBooks } from './storage.js';
 
@@ -14,6 +14,7 @@ let toolRegistrationError = null;
 let lastMatches = [];
 let lastTitle = '';
 let browseSelection = null;
+let pendingRebuildId = null;
 const el = id => document.getElementById(id);
 
 function readPreferences() {
@@ -124,7 +125,7 @@ function renderLastMatches() {
     for (const item of lastMatches) {
         const part = document.createElement('details');
         const summary = document.createElement('summary');
-        summary.textContent = `第 ${(item.id ?? item.part) + 1} / ${active?.chunks.length || '?'} 段 · ${active?.chapters[item.chapter]?.title || '正文'} · ${item.text.length} 字`;
+        summary.textContent = `第 ${(item.id ?? item.part) + 1} / ${active?.chunks.length || '?'} 段 · ${active ? chunkLabel(active,item) : '正文'} · ${item.text.length} 字`;
         const content = document.createElement('p');
         content.textContent = item.text.slice(0, 1200);
         part.append(summary, content);
@@ -161,6 +162,7 @@ async function syncPanel() {
     renderLastMatches();
 }
 async function importFile(file) {
+    const replaceId = pendingRebuildId; pendingRebuildId = null;
     if (!file) return;
     if (!/\.(txt|md|markdown)$/i.test(file.name)) { report('首版只支持 TXT / Markdown。EPUB 请先转为 TXT。', true); return; }
     if (file.size > 20 * 1024 * 1024) { report('单个文件上限 20 MB。请分卷导入。', true); return; }
@@ -171,6 +173,12 @@ async function importFile(file) {
         try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
         catch { text = new TextDecoder('gb18030').decode(buffer); }
         if (text.trim().length < 100) throw new Error('文本太短或文件编码不正确');
+        if (replaceId) {
+            const previous = await loadBook(replaceId);
+            if (!previous) throw new Error('待更新的小说已不存在，请重新选择小说');
+            await applyRebuild(previous, text);
+            return;
+        }
         await new Promise(resolve => setTimeout(resolve, 0));
         const title = file.name.replace(/\.(txt|md|markdown)$/i, '');
         const result = chunkBook(text);
@@ -185,6 +193,17 @@ async function importFile(file) {
     } catch (error) { report('导入失败：' + (error?.message || error), true); }
     finally { if (el('np-upload')) el('np-upload').value = ''; }
 }
+async function applyRebuild(previous, sourceText) {
+    report('正在按章节重新切分……');
+    const result = rebuildBook(previous, preferences.chatBindings, sourceText);
+    await saveBook(result.book);
+    // Replace bindings only after the source and new chunks have been saved.
+    preferences.chatBindings = result.bindings;
+    persist(); active = null; activeIndex = null; browseSelection = null; lastMatches = []; lastTitle = '';
+    await clearInjection(); await syncPanel();
+    report(`已更新《${result.book.title}》：${result.book.chapters.length} 章、${result.book.chunks.length} 段。已对应各聊天的进度，请看预览确认起点。`);
+}
+
 async function runPreview() {
     const binding = currentBinding();
     if (!binding?.bookId) { report('请先为当前聊天选择小说。', true); return; }
@@ -239,6 +258,9 @@ function syncReaderControls(book, binding) {
     else if (browseSelection?.key !== key || browseSelection?.bookId !== book.id) browseSelection = { key, bookId: book.id, index: cursor };
     for (const id of ['np-prev','np-next','np-block','np-jump','np-anchor','np-locate','np-browse-chapter','np-current','np-anchor-apply']) el(id).disabled = !book;
     renderBrowsePreview(book);
+    el('np-rechunk').disabled = !book;
+    el('np-rechunk').textContent = book?.sourceText ? '按章节重新切分' : '更新旧书分段（重新选原 TXT）';
+    el('np-chunk-info').textContent = !book ? '新导入小说优先一章一段。' : book.chunkVersion === 2 ? '章节优先：普通章节完整保留；超过 12000 字符才按自然段拆分，段内不硬切。' : '这本书仍是旧版碎片，更新插件不会自动改动它。用下面按钮重新选择原 TXT，保持同一本书和聊天绑定。';
     const supported = context()?.isToolCallingSupported?.();
     el('np-tool-status').textContent = toolRegistrationError ? `工具接口未就绪：${toolRegistrationError}；手动切换仍可用。`
         : !toolsRegistered ? '工具接口未就绪，手动切换可用。'
@@ -268,7 +290,7 @@ function renderBrowsePreview(book = active) {
     el('np-block').value = String(index + 1); el('np-block').max = String(book.chunks.length);
     el('np-browse-chapter').value = String(chunk.chapter);
     el('np-prev').disabled = index === 0; el('np-next').disabled = index === book.chunks.length - 1;
-    el('np-preview-title').textContent = `预览第 ${index + 1} / ${book.chunks.length} 段 · ${book.chapters[chunk.chapter]?.title || '正文'} · ${chunk.text.length} 字符`;
+    el('np-preview-title').textContent = `预览第 ${index + 1} / ${book.chunks.length} 段 · ${chunkLabel(book,chunk)} · ${chunk.text.length} 字符`;
     el('np-block-preview').textContent = chunk.text;
     el('np-block-preview').scrollTop = 0;
     el('np-anchor-apply').textContent = `从预览的第 ${index + 1} 段开始`;
@@ -353,17 +375,17 @@ function injectUI() {
       <button id="np-open" type="button" title="小说随身库">小说</button>
       <div id="np-overlay" hidden></div>
       <dialog id="np-panel" aria-label="小说随身库">
-        <header class="np-header"><div><strong>小说随身库 <small>0.2.2</small></strong><div class="np-small">顺序阅读 / 原文检索 · 本地小说库</div></div><button type="button" id="np-close" aria-label="关闭小说随身库">关闭</button></header>
+        <header class="np-header"><div><strong>小说随身库 <small>0.3.0</small></strong><div class="np-small">顺序阅读 / 原文检索 · 本地小说库</div></div><button type="button" id="np-close" aria-label="关闭小说随身库">关闭</button></header>
         <div class="np-body">
           <p class="np-hint" id="np-chat-label"></p>
           <label for="np-books">本聊天使用的小说</label><select id="np-books"></select>
           <details class="np-fold"><summary>导入小说 / 小说库说明</summary>
-            <p class="np-hint">换角色只需在上面选已有小说，不用再上传。</p>
+            <p class="np-hint">换角色只需选已有小说。新导入优先一章一段，超长章节只按自然段拆开。</p>
             <button type="button" class="np-filebtn" id="np-upload-btn">＋ 上传小说（TXT / Markdown）</button>
             <input type="file" id="np-upload" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden />
           </details>
           <section id="np-reader-controls" class="np-reader">
-            <strong id="np-progress">尚未选择小说</strong>
+            <strong id="np-progress">尚未选择小说</strong><p id="np-chunk-info" class="np-hint"></p>
             <p class="np-hint">先浏览原文，选好后点「从这里开始」。浏览不会改变剧情进度。</p>
             <label for="np-browse-chapter">按章节找片段</label><select id="np-browse-chapter"></select>
             <div class="np-browse-nav"><button type="button" id="np-prev">上一段</button><button type="button" id="np-next">下一段</button><button type="button" id="np-current">回到当前进度</button></div>
@@ -386,13 +408,13 @@ function injectUI() {
             <label for="np-injection-mode">原文插入位置</label><select id="np-injection-mode"><option value="background">预设之后、聊天正文之前（默认）</option><option value="user">最近玩家发言之前</option></select>
             <label for="np-chapter">关键词检索优先章节</label><select id="np-chapter"></select>
             <label for="np-count">关键词检索片段数</label><select id="np-count"><option value="3">3段</option><option value="4">4段</option><option value="5">5段</option><option value="6">6段</option><option value="8">8段</option></select>
-            <label for="np-budget">每轮原文字数上限</label><select id="np-budget"><option value="3000">3000字</option><option value="4500">4500字</option><option value="6200">6200字</option><option value="8000">8000字</option></select>
+            <label for="np-budget">每轮原文字数预算（优先保留完整章，首章可超出）</label><select id="np-budget"><option value="3000">3000字</option><option value="4500">4500字</option><option value="6200">6200字</option><option value="8000">8000字</option></select>
           </details>
           <details class="np-fold"><summary>查看参考记录 / 检索测试</summary>
             <label for="np-query">关键词（留空用当前对话）</label><div class="np-search"><input type="text" id="np-query" placeholder="人名、事件、地点" /><button type="button" id="np-search-btn">查找</button></div>
             <div id="np-last-matches" class="np-results"></div>
           </details>
-          <details class="np-fold"><summary>小说数据 / 删除</summary><p class="np-hint">保存在当前浏览器；不要为了更新清除网站数据。</p><button type="button" class="np-danger" id="np-delete">删除选中小说</button></details>
+          <details class="np-fold"><summary>分段管理 / 小说数据</summary><p class="np-hint">保存在当前浏览器；不要为了更新清除网站数据。</p><button type="button" id="np-rechunk">按章节重新切分</button><p class="np-hint">旧版未存全文时，需重新选择原 TXT，小说库不会生成重复书；分段后的进度会按原文尽量对应，完成后请看预览确认。</p><button type="button" class="np-danger" id="np-delete">删除选中小说</button></details>
         </div>
         <footer class="np-footer"><div id="np-status" aria-live="polite">准备就绪</div><button type="button" id="np-close-bottom">关闭窗口</button></footer>
       </dialog>`;
@@ -406,7 +428,19 @@ function injectUI() {
     globalThis.NovelPocket_openManager = open;
     el('np-open').addEventListener('click', open);
     el('np-close-bottom').addEventListener('click', close);
-    el('np-upload-btn').addEventListener('click', () => el('np-upload').click());
+    el('np-upload-btn').addEventListener('click', () => { pendingRebuildId = null; el('np-upload').click(); });
+    el('np-upload').addEventListener('cancel', () => { pendingRebuildId = null; });
+    el('np-rechunk').addEventListener('click', () => {
+        const b = currentBinding();
+        if (!active || active.id !== b?.bookId) return report('先选择小说。',true);
+        if (typeof active.sourceText === 'string') {
+            applyRebuild(active, active.sourceText).catch(e => report('重新切分失败：'+e.message,true));
+        } else {
+            pendingRebuildId = active.id;
+            report('请重新选择这本书的原始 TXT，更新分段，不会重复导入。');
+            el('np-upload').click();
+        }
+    });
     el('np-panel').addEventListener('click', event => {
         if (event.target !== el('np-panel')) return;
         const rect = event.target.getBoundingClientRect();

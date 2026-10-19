@@ -1,4 +1,4 @@
-import { buildIndex, searchChunks } from './core.js';
+import { buildIndex, searchChunks, chunkLabel } from './core.js';
 
 export function cursorFor(book, binding = {}) {
     const n = book?.chunks?.length || 0;
@@ -18,7 +18,7 @@ export function readWindow(book, start, count = 2, budget = 6200) {
     let used = 0;
     for (let id = start; id < n && blocks.length < limit; id++) {
         const c = book.chunks[id];
-        const block = { id, ...c, block: id + 1, chapterTitle: book.chapters[c.chapter]?.title || '正文' };
+        const block = { id, ...c, block: id + 1, chapterTitle: chunkLabel(book, c) };
         // Always supply the first complete block, even if an old book has a large block.
         if (blocks.length && used + c.text.length + 100 > max) break;
         blocks.push(block); used += c.text.length + 100;

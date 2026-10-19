@@ -4,7 +4,7 @@
   "js": "bootstrap.js",
   "css": "style.css",
   "author": "Community prototype",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "minimum_client_version": "1.17.0",
   "generate_interceptor": "NovelPocket_beforeGeneration",
   "requires": [],

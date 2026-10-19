@@ -70,3 +70,11 @@
 ## v0.2.2 预设后、正文前（2026-10-14）
 
 用户明确要求原文在前置预设后、聊天正文前。核对 ST 1.19 openai.js：BEFORE_PROMPT映射start，IN_PROMPT映射end（不能保证聊天前）；改用IN_CHAT/SYSTEM，depth=max(1,ctx.chat.length)，在每轮请求里动态插到聊天历史开头，避免固定depth随着消息增长而落到历史中间。不重排用户预设；预设自身的历史后条目仍不改变。background旧偏好直接采用新位置，保留最近用户发言前选项。更新核心位置测试和串联位置断言，16项通过。
+
+## v0.3.0 章节优先与旧书重切（2026-10-19）
+
+用户希望章节/自然段保持完整，而非950字切碎。core.chunkBook改为chapterLimit=12000：不超过则一章一个chunk；超长章使用原文换行边界把完整自然段分组到paragraphTarget=6000，绝不段内硬切，无重叠；单自然段超限仍完整保留。chunkVersion=2、sourceText保存原始全文，chunk附unit/section/sections便于标记。parseChapters新增Markdown、带空格中文、英文大小写与方括号标题。buildIndex扫描整章全文，makePrompt关键词模式同样只取完整chunk、不slice截断；预算为软预算，首章完整保留。
+
+rebuildBook纯函数必须获得原文，不拼接推测旧重叠块。保持bookID、createdAt及绑定，按旧进度原文开头100个非空白字符+同章标题匹配映射所有关联聊天，失败回退同章开头；清空viewed和readerId避免旧工具误提交。index新增分段管理按钮：有sourceText直接重切，旧书通过pendingRebuildId请求重新选原TXT，调用同一本书更新路线，不重复导入。普通上传/取消清除pending。先保存新书，再应用新绑定；切完清理索引、预览与参考状态。不要声称旧书仅更新插件就自动变整章，用户需重新选原文件并确认定位。
+
+23项Node自动测试和全JS语法通过，覆盖超长章只段落边界、长自然段不切、预算不截断、长章开头检索、源文保存与ID保持、旧书实际文件导入串联、不重复书、各聊天进度映射、旧工具会话拒绝。模拟DOM/IndexedDB接口不是手机端到端验证。保留源文会额外占用浏览器存储；本轮未改底层数据库名/版本。

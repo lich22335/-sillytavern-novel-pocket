@@ -77,5 +77,22 @@ test('管理窗口、原生工具、进度保存与跨聊天隔离串联验证',
     assert.equal(prefs.chatBindings['character:card.png:chat-B'].cursor,1);
     await nodes.get('np-current').click();
     assert.equal(nodes.get('np-block-preview').textContent,book.chunks[1].text);
+    // Upgrade a legacy book through the same file picker, without duplicating library entries.
+    await nodes.get('np-rechunk').click();
+    const raw = '第一章\n'+book.chunks.map(c=>c.text).join('\n\n')+'\n第二章\n新的完整剧情。';
+    const bytes = new TextEncoder().encode(raw);
+    nodes.get('np-upload').files=[{name:'测试书.txt',size:bytes.length,arrayBuffer:async()=>bytes.buffer}];
+    await nodes.get('np-upload').fire('change');
+    assert.equal(books.size,1);
+    assert.equal(books.get(book.id).chunkVersion,2);
+    assert.equal(books.get(book.id).sourceText,raw);
+    assert.equal(books.get(book.id).chunks.length,2);
+    prefs=JSON.parse(values.get('novel-pocket-settings-v1'));
+    assert.equal(prefs.chatBindings['character:card.png:chat-A'].bookId,book.id);
+    assert.equal(prefs.chatBindings['character:card.png:chat-A'].cursor,0);
+    assert.equal(prefs.chatBindings['character:card.png:chat-B'].cursor,0);
+    assert.match((await read.action({reading_id:readingId,block:1})).error,/会话已改变/);
+    await globalThis.NovelPocket_beforeGeneration([],10000,null,'normal');
+    assert.ok(prompts.get('novel-pocket-reference-v1').text.includes(book.chunks[1].text));
     await nodes.get('np-close-bottom').click(); assert.equal(nodes.get('np-panel').open,false);
 });
