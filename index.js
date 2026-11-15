@@ -101,9 +101,7 @@ globalThis.NovelPocket_beforeGeneration = async function (_chat, _contextSize, _
                 limit: preferences.count, chapter: Number.isInteger(binding.chapter) ? binding.chapter : null,
             });
         const prompt = sequential ? sequentialPrompt(book, binding, matches) : makePrompt(book, matches, preferences.maxChars);
-        if (sequential) rememberViewed(binding, matches);
-
-        if (!prompt || !prompt.trim()) { showInjectionState('读取失败：本批正文为空，请重新选择起点'); return; }
+        if (!prompt || !prompt.trim() || (sequential && !matches.some(item => typeof item.text === 'string' && item.text.trim()))) { showInjectionState('读取失败：本批正文为空，请重新选择起点'); return; }
         // Clear and replace our own reference only; preset and chat messages stay intact.
         if (key !== chatKey() || !preferences.chatBindings[key]?.enabled) { showInjectionState('聊天已切换或小说已关闭'); return; }
         const placement = injectionPlacement(preferences.injectionMode, context()?.chat);
@@ -111,6 +109,7 @@ globalThis.NovelPocket_beforeGeneration = async function (_chat, _contextSize, _
         if (typeof setter !== 'function') throw new Error('酒馆未提供提示词注入接口');
         await setter(PROMPT_KEY, prompt, placement.position, placement.depth, false, placement.role);
         showInjectionState(`已提交注入：${book.title} · ${prompt.length}字符（可在提示词检查器核实）`);
+        if (sequential) rememberViewed(binding, matches);
         lastMatches = matches;
         lastTitle = book.title;
         renderLastMatches();
@@ -269,7 +268,7 @@ function syncReaderControls(book, binding) {
     el('np-sequence-count').value = String(preferences.sequenceCount);
     el('np-tools-enabled').checked = binding?.allowTools !== false;
     const cursor = cursorFor(book, binding);
-    el('np-progress').textContent = book ? `当前进度：第 ${cursor + 1} / ${book.chunks.length} 段 · ${book.chapters[book.chunks[cursor].chapter]?.title || '正文'}` : '先在上方选择已导入的小说';
+    el('np-progress').textContent = book ? `${book.chapters[book.chunks[cursor].chapter]?.title || '正文'} · ${cursor + 1}/${book.chunks.length}` : '请选择小说';
     fillOptions(el('np-browse-chapter'), (book?.chapters || []).map(c => [c.id,c.title]), '按章节浏览');
     const key = chatKey();
     if (!book) browseSelection = null;
@@ -280,7 +279,7 @@ function syncReaderControls(book, binding) {
     if (el('np-batch-next')) el('np-batch-next').disabled = !book;
     if (book) {
         const part=readWindow(book,cursor,1,preferences.maxChars,offsetFor(book,binding))[0];
-        el('np-batch-info').textContent = `AI阅读位置：第 ${part.offset+1}–${part.endOffset} 字 / 共 ${part.totalChars} 字`;
+        el('np-batch-info').textContent = part ? `当前发送范围：${part.offset+1}–${part.endOffset} / ${part.totalChars} 字` : '当前没有可发送的正文';
     } else el('np-batch-info').textContent='';
     el('np-rechunk').disabled = !book;
     el('np-rechunk').textContent = book?.sourceText ? '按章节重新切分' : '更新旧书分段（重新选原 TXT）';
@@ -341,8 +340,10 @@ function renderBrowsePreview(book = active) {
     const binding = currentBinding();
     el('np-prev').disabled = cursorFor(book,binding) === 0 && offsetFor(book,binding) === 0;
     el('np-next').disabled = cursorFor(book,binding) === book.chunks.length - 1 && readWindow(book,cursorFor(book,binding),1,preferences.maxChars,offsetFor(book,binding))[0]?.complete;
-    el('np-preview-title').textContent = `预览第 ${index + 1} / ${book.chunks.length} 段 · ${chunkLabel(book,chunk)} · ${chunk.text.length} 字符`;
-    el('np-block-preview').textContent = chunk.text;
+    const isCurrent = index === cursorFor(book,binding);
+    const batch = isCurrent ? readWindow(book,index,1,preferences.maxChars,offsetFor(book,binding))[0] : null;
+    el('np-preview-title').textContent = isCurrent && batch ? `当前发送内容 · ${chunkLabel(book,chunk)} · ${batch.offset+1}–${batch.endOffset} / ${batch.totalChars} 字` : `章节预览 · ${chunkLabel(book,chunk)} · ${chunk.text.length} 字`;
+    el('np-block-preview').textContent = isCurrent && batch ? batch.text : chunk.text;
     el('np-block-preview').scrollTop = 0;
     el('np-anchor-apply').textContent = `从预览的第 ${index + 1} 段开始`;
 }
@@ -434,26 +435,24 @@ function injectUI() {
       <button id="np-open" type="button" title="小说随身库">小说</button>
       <div id="np-overlay" hidden></div>
       <dialog id="np-panel" aria-label="小说随身库">
-        <header class="np-header"><div><strong>小说随身库 <small>0.3.1</small></strong><div class="np-small">顺序阅读 / 原文检索 · 本地小说库</div></div><button type="button" id="np-close" aria-label="关闭小说随身库">关闭</button></header>
+        <header class="np-header"><div><strong>小说随身库 <small>0.3.2</small></strong></div><button type="button" id="np-close" aria-label="关闭小说随身库">关闭</button></header>
         <div class="np-body">
           <p class="np-hint" id="np-chat-label"></p>
           <label for="np-books">本聊天使用的小说</label><select id="np-books"></select>
-          <details class="np-fold"><summary>导入小说 / 小说库说明</summary>
-            <p class="np-hint">换角色只需选已有小说。新导入优先一章一段，超长章节只按自然段拆开。</p>
+          <details class="np-fold"><summary>导入小说</summary>
             <button type="button" class="np-filebtn" id="np-upload-btn">＋ 上传小说（TXT / Markdown）</button>
             <input type="file" id="np-upload" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden />
           </details>
           <section id="np-reader-controls" class="np-reader">
-            <strong id="np-progress">尚未选择小说</strong><p id="np-chunk-info" class="np-hint"></p><p id="np-batch-info" class="np-hint"></p><strong id="np-injection-state">尚未发送</strong>
+            <strong id="np-progress">尚未选择小说</strong><p id="np-batch-info" class="np-hint"></p><strong id="np-injection-state">尚未发送</strong><p id="np-chunk-info" class="np-hint" hidden></p>
             
             <label for="np-browse-chapter">按章节找片段</label><select id="np-browse-chapter"></select>
-            <div class="np-browse-nav"><button type="button" id="np-prev">上一段</button><button type="button" id="np-next">下一段</button><button type="button" id="np-current">回到当前进度</button></div>
-            <div class="np-block-jump"><label for="np-block">段号</label><input type="number" id="np-block" min="1" aria-label="片段编号" /><button type="button" id="np-jump">查看</button></div>
+            <div class="np-browse-nav"><button type="button" id="np-prev">上一段</button><button type="button" id="np-next">下一段</button></div>
+            <div class="np-block-jump" hidden><label for="np-block">段号</label><input type="number" id="np-block" min="1" aria-label="片段编号" /><button type="button" id="np-jump">查看</button><button type="button" id="np-current">回到当前进度</button></div>
             <div class="np-preview-heading" id="np-preview-title"></div>
             <div id="np-block-preview" tabindex="0" aria-label="完整原文预览"></div>
             <button type="button" id="np-anchor-apply" class="np-apply">从这里开始</button>
-            <details class="np-fold"><summary>用原文查找位置</summary>
-              <p class="np-hint">粘贴场景结尾的一两句原文，查找后会显示完整预览。</p>
+            <details class="np-fold"><summary>定位原文</summary>
               <textarea id="np-anchor" rows="3" placeholder="粘贴原文"></textarea><button type="button" id="np-locate">查找位置</button>
               <select id="np-anchor-results" aria-label="定位候选片段" hidden></select>
             </details>
@@ -463,7 +462,7 @@ function injectUI() {
             <label for="np-read-mode">阅读方式</label><select id="np-read-mode"><option value="sequence">顺序剧情</option><option value="keyword">关键词检索（自由探索）</option></select>
             <label for="np-sequence-count">顺序模式最多参考章节/段数（受字符限额约束）</label><select id="np-sequence-count"><option value="1">只参考当前章/段</option><option value="2">最多当前 + 下一章/段</option><option value="3">最多连续 3 章/段</option></select>
             <label class="np-toggle"><input type="checkbox" id="np-tools-enabled" /><span>允许 AI 读取后续并推进一段</span></label><p id="np-tool-status" class="np-hint"></p>
-            <p class="np-hint">工具记录与后续回复会增加用量；不能调用时，浏览下一段后点「从这里开始」。</p>
+
             <label for="np-injection-mode">原文插入位置</label><select id="np-injection-mode"><option value="background">预设之后、聊天正文之前（默认）</option><option value="user">最近玩家发言之前</option></select>
             <label for="np-chapter">关键词检索优先章节</label><select id="np-chapter"></select>
             <label for="np-count">关键词检索片段数</label><select id="np-count"><option value="3">3段</option><option value="4">4段</option><option value="5">5段</option><option value="6">6段</option><option value="8">8段</option></select>
