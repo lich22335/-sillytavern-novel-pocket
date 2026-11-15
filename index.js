@@ -277,7 +277,7 @@ function syncReaderControls(book, binding) {
     for (const id of ['np-prev','np-next','np-block','np-jump','np-anchor','np-locate','np-browse-chapter','np-current','np-anchor-apply']) el(id).disabled = !book;
     renderBrowsePreview(book);
     if (el('np-batch-prev')) el('np-batch-prev').disabled = !book || (cursor===0 && offsetFor(book,binding)===0);
-    el('np-batch-next').disabled = !book;
+    if (el('np-batch-next')) el('np-batch-next').disabled = !book;
     if (book) {
         const part=readWindow(book,cursor,1,preferences.maxChars,offsetFor(book,binding))[0];
         el('np-batch-info').textContent = `AI阅读位置：第 ${part.offset+1}–${part.endOffset} 字 / 共 ${part.totalChars} 字`;
@@ -321,8 +321,9 @@ function moveBatch(direction) {
     }
     b.cursor=cursor; b.offset=offset; b.chapter=active.chunks[cursor].chapter; b.readerId='';
     b.readMode='sequence'; b.viewedRanges={}; b.viewed=[];
+    browseSelection={key:chatKey(),bookId:active.id,index:cursor};
     persist(); clearInjection(); syncReaderControls(active,b);
-    report(`AI 进度已设为第 ${cursor+1} 段，章内第 ${offset+1} 字开始，下次回复生效。`);
+    report(`阅读位置：第 ${cursor+1} 段，第 ${offset+1} 字起；下次发送生效。`);
 }
 
 function renderBrowsePreview(book = active) {
@@ -337,7 +338,9 @@ function renderBrowsePreview(book = active) {
     const chunk = book.chunks[index];
     el('np-block').value = String(index + 1); el('np-block').max = String(book.chunks.length);
     el('np-browse-chapter').value = String(chunk.chapter);
-    el('np-prev').disabled = index === 0; el('np-next').disabled = index === book.chunks.length - 1;
+    const binding = currentBinding();
+    el('np-prev').disabled = cursorFor(book,binding) === 0 && offsetFor(book,binding) === 0;
+    el('np-next').disabled = cursorFor(book,binding) === book.chunks.length - 1 && readWindow(book,cursorFor(book,binding),1,preferences.maxChars,offsetFor(book,binding))[0]?.complete;
     el('np-preview-title').textContent = `预览第 ${index + 1} / ${book.chunks.length} 段 · ${chunkLabel(book,chunk)} · ${chunk.text.length} 字符`;
     el('np-block-preview').textContent = chunk.text;
     el('np-block-preview').scrollTop = 0;
@@ -441,10 +444,10 @@ function injectUI() {
             <input type="file" id="np-upload" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden />
           </details>
           <section id="np-reader-controls" class="np-reader">
-            <strong id="np-progress">尚未选择小说</strong><p id="np-chunk-info" class="np-hint"></p><p id="np-batch-info" class="np-hint"></p><strong id="np-injection-state">尚未发送</strong><div class="np-browse-nav"><button type="button" id="np-batch-next">AI 下一批</button></div>
+            <strong id="np-progress">尚未选择小说</strong><p id="np-chunk-info" class="np-hint"></p><p id="np-batch-info" class="np-hint"></p><strong id="np-injection-state">尚未发送</strong>
             
             <label for="np-browse-chapter">按章节找片段</label><select id="np-browse-chapter"></select>
-            <div class="np-browse-nav"><button type="button" id="np-prev">预览上一段</button><button type="button" id="np-next">预览下一段</button><button type="button" id="np-current">回到当前进度</button></div>
+            <div class="np-browse-nav"><button type="button" id="np-prev">上一段</button><button type="button" id="np-next">下一段</button><button type="button" id="np-current">回到当前进度</button></div>
             <div class="np-block-jump"><label for="np-block">段号</label><input type="number" id="np-block" min="1" aria-label="片段编号" /><button type="button" id="np-jump">查看</button></div>
             <div class="np-preview-heading" id="np-preview-title"></div>
             <div id="np-block-preview" tabindex="0" aria-label="完整原文预览"></div>
@@ -534,9 +537,9 @@ function injectUI() {
     });
     el('np-sequence-count').addEventListener('change', e => { preferences.sequenceCount = Number(e.target.value); persist(); clearInjection(); });
     if (el('np-batch-prev')) el('np-batch-prev').addEventListener('click', () => moveBatch(-1));
-    el('np-batch-next').addEventListener('click', () => moveBatch(1));
-    el('np-prev').addEventListener('click', () => movePreview(-1));
-    el('np-next').addEventListener('click', () => movePreview(1));
+    if (el('np-batch-next')) el('np-batch-next').addEventListener('click', () => moveBatch(1));
+    el('np-prev').addEventListener('click', () => moveBatch(-1));
+    el('np-next').addEventListener('click', () => moveBatch(1));
     el('np-jump').addEventListener('click', () => browseBlock(Number(el('np-block').value) - 1));
     el('np-locate').addEventListener('click', locateCurrentScene);
     el('np-anchor-results').addEventListener('change', () => {
