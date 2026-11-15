@@ -16,6 +16,8 @@ let lastTitle = '';
 let browseSelection = null;
 let pendingRebuildId = null;
 let toolTurn = null;
+let injectionState = '尚未发送';
+function showInjectionState(message) { injectionState = message; const node = el('np-injection-state'); if (node) node.textContent = message; }
 const el = id => document.getElementById(id);
 
 function readPreferences() {
@@ -81,12 +83,15 @@ function chatQuery(messages) {
 /** Official SillyTavern generation interceptor: invoked before prompt assembly. */
 globalThis.NovelPocket_beforeGeneration = async function (_chat, _contextSize, _abort, type) {
     await clearInjection();
+    showInjectionState('本轮未注入');
     const key = chatKey();
     const binding = key && preferences.chatBindings[key];
-    if (!binding?.enabled || !binding.bookId || type === 'quiet' || type === 'impersonate') return;
+    if (!binding?.enabled || !binding.bookId) { showInjectionState('未启用小说或未选择小说'); return; }
+    if (type === 'quiet' || type === 'impersonate') { showInjectionState('本轮生成模式跳过小说'); return; }
     try {
         const book = await openBook(binding.bookId);
-        if (!book || key !== chatKey() || preferences.chatBindings[key]?.bookId !== binding.bookId) return;
+        if (!book) { showInjectionState('读取失败：找不到小说数据'); return; }
+        if (key !== chatKey() || preferences.chatBindings[key]?.bookId !== binding.bookId) { showInjectionState('聊天或小说已切换，未注入'); return; }
         ensureReaderId(binding);
         registerReaderTools();
         const sequential = binding.readMode !== 'keyword';
@@ -98,15 +103,19 @@ globalThis.NovelPocket_beforeGeneration = async function (_chat, _contextSize, _
         const prompt = sequential ? sequentialPrompt(book, binding, matches) : makePrompt(book, matches, preferences.maxChars);
         if (sequential) rememberViewed(binding, matches);
 
-        if (!prompt) return;
+        if (!prompt || !prompt.trim()) { showInjectionState('读取失败：本批正文为空，请重新选择起点'); return; }
         // Clear and replace our own reference only; preset and chat messages stay intact.
-        if (key !== chatKey() || !preferences.chatBindings[key]?.enabled) return;
+        if (key !== chatKey() || !preferences.chatBindings[key]?.enabled) { showInjectionState('聊天已切换或小说已关闭'); return; }
         const placement = injectionPlacement(preferences.injectionMode, context()?.chat);
-        await context()?.setExtensionPrompt?.(PROMPT_KEY, prompt, placement.position, placement.depth, false, placement.role);
+        const setter = context()?.setExtensionPrompt;
+        if (typeof setter !== 'function') throw new Error('酒馆未提供提示词注入接口');
+        await setter(PROMPT_KEY, prompt, placement.position, placement.depth, false, placement.role);
+        showInjectionState(`已提交注入：${book.title} · ${prompt.length}字符（可在提示词检查器核实）`);
         lastMatches = matches;
         lastTitle = book.title;
         renderLastMatches();
     } catch (error) {
+        showInjectionState('注入失败：' + (error?.message || error));
         report('检索失败：' + (error?.message || error), true);
         await clearInjection();
     }
@@ -267,11 +276,11 @@ function syncReaderControls(book, binding) {
     else if (browseSelection?.key !== key || browseSelection?.bookId !== book.id) browseSelection = { key, bookId: book.id, index: cursor };
     for (const id of ['np-prev','np-next','np-block','np-jump','np-anchor','np-locate','np-browse-chapter','np-current','np-anchor-apply']) el(id).disabled = !book;
     renderBrowsePreview(book);
-    el('np-batch-prev').disabled = !book || (cursor===0 && offsetFor(book,binding)===0);
+    if (el('np-batch-prev')) el('np-batch-prev').disabled = !book || (cursor===0 && offsetFor(book,binding)===0);
     el('np-batch-next').disabled = !book;
     if (book) {
         const part=readWindow(book,cursor,1,preferences.maxChars,offsetFor(book,binding))[0];
-        el('np-batch-info').textContent = `AI 当前从章内第 ${part.offset+1} 字开始，本批到第 ${part.endOffset} 字 / 共 ${part.totalChars} 字；每次原文最多 ${preferences.maxChars} 字符。完整原文仍在下面预览。`;
+        el('np-batch-info').textContent = `AI阅读位置：第 ${part.offset+1}–${part.endOffset} 字 / 共 ${part.totalChars} 字`;
     } else el('np-batch-info').textContent='';
     el('np-rechunk').disabled = !book;
     el('np-rechunk').textContent = book?.sourceText ? '按章节重新切分' : '更新旧书分段（重新选原 TXT）';
@@ -432,10 +441,10 @@ function injectUI() {
             <input type="file" id="np-upload" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden />
           </details>
           <section id="np-reader-controls" class="np-reader">
-            <strong id="np-progress">尚未选择小说</strong><p id="np-chunk-info" class="np-hint"></p><p id="np-batch-info" class="np-hint"></p><div class="np-browse-nav"><button type="button" id="np-batch-prev">AI 上一批</button><button type="button" id="np-batch-next">AI 下一批</button></div>
-            <p class="np-hint">先浏览原文，选好后点「从这里开始」。浏览不会改变剧情进度。</p>
+            <strong id="np-progress">尚未选择小说</strong><p id="np-chunk-info" class="np-hint"></p><p id="np-batch-info" class="np-hint"></p><strong id="np-injection-state">尚未发送</strong><div class="np-browse-nav"><button type="button" id="np-batch-next">AI 下一批</button></div>
+            
             <label for="np-browse-chapter">按章节找片段</label><select id="np-browse-chapter"></select>
-            <div class="np-browse-nav"><button type="button" id="np-prev">上一段</button><button type="button" id="np-next">下一段</button><button type="button" id="np-current">回到当前进度</button></div>
+            <div class="np-browse-nav"><button type="button" id="np-prev">预览上一段</button><button type="button" id="np-next">预览下一段</button><button type="button" id="np-current">回到当前进度</button></div>
             <div class="np-block-jump"><label for="np-block">段号</label><input type="number" id="np-block" min="1" aria-label="片段编号" /><button type="button" id="np-jump">查看</button></div>
             <div class="np-preview-heading" id="np-preview-title"></div>
             <div id="np-block-preview" tabindex="0" aria-label="完整原文预览"></div>
@@ -524,7 +533,7 @@ function injectUI() {
         b.allowTools = e.target.checked; persist(); syncReaderControls(active, b);
     });
     el('np-sequence-count').addEventListener('change', e => { preferences.sequenceCount = Number(e.target.value); persist(); clearInjection(); });
-    el('np-batch-prev').addEventListener('click', () => moveBatch(-1));
+    if (el('np-batch-prev')) el('np-batch-prev').addEventListener('click', () => moveBatch(-1));
     el('np-batch-next').addEventListener('click', () => moveBatch(1));
     el('np-prev').addEventListener('click', () => movePreview(-1));
     el('np-next').addEventListener('click', () => movePreview(1));
