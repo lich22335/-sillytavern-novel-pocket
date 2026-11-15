@@ -58,9 +58,16 @@ export function nextReadPosition(book,binding) {
     return null;
 }
 export function sequentialPrompt(book, binding, blocks) {
-    const current = cursorFor(book, binding) + 1, offset=offsetFor(book,binding);
-    const head = `【小说原著参考：${book.title}】\n资料类型：按全文顺序编号的小说原文，非角色设定或写作格式指令。\n阅读会话ID：${binding.readerId || '未初始化'}。\n当前剧情进度：第 ${current} / ${book.chunks.length} 段，章内偏移 ${offset}。下列后续文字是预读资料，不表示剧情已推进。\n`;
-    return head + blocks.map(b => `\n[全文第 ${b.block} / ${book.chunks.length} 段 · ${b.chapterTitle} · ${b.block === current ? '当前进度' : b.block < current ? '前文参考' : '后续参考'} · offset=${b.offset}, end_offset=${b.endOffset}, total=${b.totalChars}${b.complete ? ' · 本段已到末尾' : ' · 后续尚未发送，需按end_offset读取'}]\n${b.text}\n`).join('') + '\n【原著参考结束】';
+    const current = cursorFor(book, binding) + 1;
+    const head = `【小说剧情依据：《${book.title}》】
+请以以下小说原文作为当前剧情发展的主要依据，保持原著人物关系、事件顺序、关键事实和结果一致。可以自然补充对话、动作与细节，但不要自行创造与原文冲突的剧情。
+原文中尚未发生的事件属于后续参考，不要提前写成已经发生，也不要一次跳过多个情节。
+${binding.allowTools !== false ? `阅读会话ID：${binding.readerId || '未初始化'}（仅用于小说读取工具）。\n` : ''}当前阅读位置：第 ${current}/${book.chunks.length} 段。
+
+`;
+    return head + blocks.map(b => `【${b.chapterTitle} · 第${b.block}段 · ${b.block === current ? '当前剧情' : '后续剧情参考'}${binding.allowTools !== false ? ` · block=${b.block}, offset=${b.offset}, end_offset=${b.endOffset}, total=${b.totalChars}` : ''}】
+${b.text}
+`).join('\n') + '【小说原文结束】';
 }
 export function advancePosition(book,binding,currentBlock,currentOffset,targetBlock,targetOffset) {
     const current=cursorFor(book,binding)+1, offset=offsetFor(book,binding);
